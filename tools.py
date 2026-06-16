@@ -291,7 +291,7 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
                 },
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.9,
+            temperature=1.0,
         )
 
         caption = (response.choices[0].message.content or "").strip()
@@ -303,5 +303,5 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
         return (
             f"Thrifted this {title} for {price_str} on {platform} and I'm obsessed "
             "— styled it exactly how I pictured and it's giving everything. "
-            "Full look's up now. 🤎"
+            "Full look's up now."
         )

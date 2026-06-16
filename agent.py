@@ -18,6 +18,8 @@ Usage (once implemented):
     print(result["error"])   # None on success
 """
 
+import re
+
 from tools import search_listings, suggest_outfit, create_fit_card
 
 
@@ -92,9 +94,90 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     Before writing code, complete the Planning Loop and State Management sections
     of planning.md — your implementation should match what you described there.
     """
-    # TODO: implement the planning loop
+    # Step 1: initialize the session (single source of truth for this run).
     session = _new_session(query, wardrobe)
-    session["error"] = "Planning loop not yet implemented."
+
+    # Step 2: parse the raw query deterministically (regex, no LLM call) into
+    # description / size / max_price. We strip the matched price/size phrases out
+    # of a working copy of the query; whatever remains becomes the description.
+    working = query or ""
+
+    # --- max_price: "under $30", "below 30", "$30", "30 dollars", ... ---
+    max_price = None
+    price_patterns = [
+        r"\b(?:under|below|less than|maximum|max|up to|no more than)\s*\$?\s*(\d+(?:\.\d{1,2})?)",
+        r"\$\s*(\d+(?:\.\d{1,2})?)",
+        r"\b(\d+(?:\.\d{1,2})?)\s*(?:dollars|bucks|usd)\b",
+    ]
+    for pattern in price_patterns:
+        match = re.search(pattern, working, flags=re.IGNORECASE)
+        if match:
+            max_price = float(match.group(1))
+            working = re.sub(pattern, " ", working, count=1, flags=re.IGNORECASE)
+            break
+
+    # --- size: "size M" phrases, then standalone size tokens ---
+    # Tokens are ordered longest-first; word boundaries stop XS matching inside XXS.
+    size = None
+    size_tokens = r"(?:XXXL|XXXS|XXL|XXS|XL|XS|S|M|L)"
+    phrase = re.search(r"\bsize\s+(" + size_tokens + r")\b", working, flags=re.IGNORECASE)
+    if phrase:
+        size = phrase.group(1).upper()
+        working = re.sub(
+            r"\bsize\s+" + size_tokens + r"\b", " ", working, count=1, flags=re.IGNORECASE
+        )
+    else:
+        # Multi-letter tokens are unambiguous, so match them case-insensitively.
+        multi = re.search(r"\b(XXXL|XXXS|XXL|XXS|XL|XS)\b", working, flags=re.IGNORECASE)
+        if multi:
+            size = multi.group(1).upper()
+            working = re.sub(
+                r"\b" + re.escape(multi.group(1)) + r"\b", " ", working, count=1, flags=re.IGNORECASE
+            )
+        else:
+            # Single-letter sizes only when uppercase + standalone, to avoid
+            # matching ordinary lowercase words like "a"/"s" in the query.
+            single = re.search(r"\b([SML])\b", working)
+            if single:
+                size = single.group(1).upper()
+                working = re.sub(r"\b" + single.group(1) + r"\b", " ", working, count=1)
+
+    # --- description: the cleaned remainder (collapse whitespace) ---
+    description = re.sub(r"\s+", " ", working).strip()
+
+    session["parsed"] = {
+        "description": description,
+        "size": size,
+        "max_price": max_price,
+    }
+
+    # Step 3: search the listings with the parsed parameters.
+    session["search_results"] = search_listings(description, size, max_price)
+
+    # Step 4: branch on the result. Empty -> set a helpful error and return early,
+    # WITHOUT calling suggest_outfit / create_fit_card (they stay None).
+    if not session["search_results"]:
+        session["error"] = (
+            "I couldn't find anything matching that. Try raising your price cap, "
+            "removing the size filter, or using broader keywords (e.g. 'graphic "
+            "tee' instead of 'vintage band tee')."
+        )
+        return session
+
+    session["selected_item"] = session["search_results"][0]
+    # print("test",session["selected_item"])
+    # Step 5: suggest an outfit for the selected item (tool handles empty wardrobe).
+    session["outfit_suggestion"] = suggest_outfit(
+        session["selected_item"], session["wardrobe"]
+    )
+    # print("test2",session["outfit_suggestion"])
+
+    # Step 6: create the fit card from the outfit + the SAME selected item.
+    session["fit_card"] = create_fit_card(
+        session["outfit_suggestion"], session["selected_item"]
+    )
+
+    # Step 7: return the completed session.
     return session
 
 
@@ -121,3 +204,4 @@ if __name__ == "__main__":
         wardrobe=get_example_wardrobe(),
     )
     print(f"Error message: {session2['error']}")
+
