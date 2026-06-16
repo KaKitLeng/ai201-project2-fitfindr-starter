@@ -206,8 +206,27 @@ The control flow runs top to bottom (solid black arrows). The `session` dict is 
      before trusting it" is a plan. -->
 
 **Milestone 3 — Individual tool implementations:**
+I'll use **Claude (Claude Code)**, one tool at a time, giving it the matching `tools.py` stub plus the spec block from this file.
+
+- **search_listings:** I'll paste the Tool 1 block (inputs, return shape, failure mode) and the stub's TODO steps, and ask Claude to implement it using `load_listings()` from `utils/data_loader.py` (not re-implementing file loading). Before running, I'll verify it:
+     1. filters by size and `max_price` when provided and skips them when `None`.
+     2. scores by keyword overlap and drops score-0 items
+     3. returns `[]` rather than raising on no match. Then I'll run the three pytest cases: a normal query, an impossible one (`"designer ballgown"`, `XXS`, `$5`), and a price-filter check.
+
+- **suggest_outfit:** I'll give Claude the Tool 2 block and the wardrobe schema (item fields: name, category, colors, style_tags, notes), and ask it to call Groq `llama-3.3-70b-versatile` with the key from `.env`, branching on empty `wardrobe["items"]`. I'll verify a string is returned for both `get_example_wardrobe()` and `get_empty_wardrobe()`.
+
+- **create_fit_card:** I'll give Claude the Tool 3 block, asking it to guard the empty-`outfit` case before any LLM call and use a higher temperature so captions vary. I'll verify two same-input runs differ; if not, bump temperature.
+
+Verification before trusting any tool: read the generated function against my spec (signature match? failure mode handled?), then run `pytest tests/`.
 
 **Milestone 4 — Planning loop and state management:**
+
+I'll give Claude the **Architecture diagram**, the **Planning Loop** section, and the **State Management** section, plus the `run_agent()` stub with its numbered TODO, and ask it to implement `run_agent()` in `agent.py`. Before running I'll check: 
+1. it parses the query into `session["parsed"]` 
+2. it branches on `search_results` and returns early on `[]` without calling the later tools 
+3. it writes `selected_item`, `outfit_suggestion`, `fit_card`, and `error` into the session 
+4. it does **not** call all three tools unconditionally. Then I'll implement `handle_query()` in `app.py` to map the session to the three output panels, and verify state passes by printing `session["selected_item"]` and `session["outfit_suggestion"]` mid-run.
+
 
 ---
 
